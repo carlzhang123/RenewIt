@@ -21,6 +21,7 @@ struct RenewItApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(\.locale, Locale(identifier: "zh_Hans_CN"))
         }
         .modelContainer(modelContainer)
     }

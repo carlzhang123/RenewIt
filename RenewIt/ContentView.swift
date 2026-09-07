@@ -1,12 +1,25 @@
+import SwiftData
 import SwiftUI
 
-struct Subscription: Codable, Identifiable, Hashable {
-    let id: UUID
+@Model
+final class Subscription {
+    var id: UUID
     var name: String
     var expirationDate: Date
     var renewalInterval: Int
-    var renewalUnit: RenewalUnit
+    var renewalUnitRawValue: String
     var autoRenews: Bool
+    var categoryRawValue: String
+
+    var renewalUnit: RenewalUnit {
+        get { RenewalUnit(rawValue: renewalUnitRawValue) ?? .month }
+        set { renewalUnitRawValue = newValue.rawValue }
+    }
+
+    var category: SubscriptionCategory {
+        get { SubscriptionCategory(rawValue: categoryRawValue) ?? .other }
+        set { categoryRawValue = newValue.rawValue }
+    }
 
     init(
         id: UUID = UUID(),
@@ -14,14 +27,16 @@ struct Subscription: Codable, Identifiable, Hashable {
         expirationDate: Date,
         renewalInterval: Int,
         renewalUnit: RenewalUnit,
-        autoRenews: Bool
+        autoRenews: Bool,
+        category: SubscriptionCategory = .other
     ) {
         self.id = id
         self.name = name
         self.expirationDate = expirationDate
         self.renewalInterval = renewalInterval
-        self.renewalUnit = renewalUnit
+        renewalUnitRawValue = renewalUnit.rawValue
         self.autoRenews = autoRenews
+        categoryRawValue = category.rawValue
     }
 
     var cycleDescription: String {
@@ -78,61 +93,97 @@ enum RenewalUnit: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-@MainActor
-@Observable
-final class SubscriptionStore {
-    private static let storageKey = "savedSubscriptions"
+enum SubscriptionCategory: String, Codable, CaseIterable, Identifiable {
+    case entertainment
+    case workAndLife
+    case education
+    case artificialIntelligence
+    case cloudServices
+    case healthAndFitness
+    case shopping
+    case gaming
+    case other
 
-    var subscriptions: [Subscription] = [] {
-        didSet {
-            save()
+    var id: Self { self }
+
+    var displayName: String {
+        switch self {
+        case .entertainment:
+            "影音娱乐"
+        case .workAndLife:
+            "工作生活"
+        case .education:
+            "学习教育"
+        case .artificialIntelligence:
+            "AI 工具"
+        case .cloudServices:
+            "云服务"
+        case .healthAndFitness:
+            "健康健身"
+        case .shopping:
+            "购物会员"
+        case .gaming:
+            "游戏"
+        case .other:
+            "其他"
         }
     }
 
-    init() {
-        guard
-            let data = UserDefaults.standard.data(forKey: Self.storageKey),
-            let decoded = try? JSONDecoder().decode([Subscription].self, from: data)
-        else {
-            return
+    var systemImage: String {
+        switch self {
+        case .entertainment:
+            "play.tv.fill"
+        case .workAndLife:
+            "briefcase.fill"
+        case .education:
+            "graduationcap.fill"
+        case .artificialIntelligence:
+            "sparkles"
+        case .cloudServices:
+            "cloud.fill"
+        case .healthAndFitness:
+            "heart.fill"
+        case .shopping:
+            "bag.fill"
+        case .gaming:
+            "gamecontroller.fill"
+        case .other:
+            "square.grid.2x2.fill"
         }
-
-        subscriptions = decoded
-    }
-
-    func add(_ subscription: Subscription) {
-        subscriptions.append(subscription)
-    }
-
-    func update(_ subscription: Subscription) {
-        guard let index = subscriptions.firstIndex(where: { $0.id == subscription.id }) else {
-            return
-        }
-        subscriptions[index] = subscription
-    }
-
-    func delete(id: UUID) {
-        subscriptions.removeAll { $0.id == id }
-    }
-
-    private func save() {
-        guard let data = try? JSONEncoder().encode(subscriptions) else {
-            return
-        }
-        UserDefaults.standard.set(data, forKey: Self.storageKey)
     }
 }
 
 struct ContentView: View {
-    @State private var store = SubscriptionStore()
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \Subscription.expirationDate) private var subscriptions: [Subscription]
     @State private var editorRoute: EditorRoute?
+    @State private var pendingDeletion: Subscription?
+    @State private var selectedCategory: SubscriptionCategory?
 
     private var sortedSubscriptions: [Subscription] {
-        store.subscriptions.sorted { $0.expirationDate < $1.expirationDate }
+        let subscriptions = if let selectedCategory {
+            subscriptions.filter { $0.category == selectedCategory }
+        } else {
+            subscriptions
+        }
+        return subscriptions.sorted { $0.expirationDate < $1.expirationDate }
+    }
+
+    private var categoryGroups: [SubscriptionCategoryGroup] {
+        let grouped = Dictionary(grouping: sortedSubscriptions, by: \.category)
+        return SubscriptionCategory.allCases.compactMap { category in
+            guard let subscriptions = grouped[category] else {
+                return nil
+            }
+            return SubscriptionCategoryGroup(
+                category: category,
+                subscriptions: subscriptions
+            )
+        }
     }
 
     private var expiringSoonCount: Int {
-        store.subscriptions.filter {
+        subscriptions.filter {
             let remaining = $0.daysRemaining()
             return remaining >= 0 && remaining <= 30
         }.count
@@ -141,15 +192,23 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if sortedSubscriptions.isEmpty {
+                if subscriptions.isEmpty {
                     emptyState
+                } else if sortedSubscriptions.isEmpty {
+                    ContentUnavailableView(
+                        "这个分类还没有会员",
+                        systemImage: "line.3.horizontal.decrease.circle",
+                        description: Text("可以选择其他分类，或添加一条新记录。")
+                    )
                 } else {
                     subscriptionList
                 }
             }
             .navigationTitle("我的会员")
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    categoryFilterMenu
+
                     Button {
                         editorRoute = .new
                     } label: {
@@ -161,17 +220,50 @@ struct ContentView: View {
                 SubscriptionEditor(
                     subscription: route.subscription,
                     onSave: { subscription in
-                        if route.subscription == nil {
-                            store.add(subscription)
-                        } else {
-                            store.update(subscription)
-                        }
+                        save(subscription, replacing: route.subscription)
                     },
                     onDelete: route.subscription.map { subscription in
-                        { store.delete(id: subscription.id) }
+                        { delete(subscription) }
                     }
                 )
             }
+            .alert(
+                "确定删除这个会员吗？",
+                item: $pendingDeletion
+            ) { subscription in
+                Button("删除", role: .destructive) {
+                    delete(subscription)
+                }
+                Button("取消", role: .cancel) {}
+            } message: { subscription in
+                Text("“\(subscription.name)”将被永久删除，此操作无法撤销。")
+            }
+        }
+    }
+
+    private var categoryFilterMenu: some View {
+        Menu {
+            Button {
+                selectedCategory = nil
+            } label: {
+                Label("全部分类", systemImage: selectedCategory == nil ? "checkmark" : "square.grid.2x2")
+            }
+
+            ForEach(SubscriptionCategory.allCases) { category in
+                Button {
+                    selectedCategory = category
+                } label: {
+                    Label(
+                        category.displayName,
+                        systemImage: selectedCategory == category ? "checkmark" : category.systemImage
+                    )
+                }
+            }
+        } label: {
+            Label(
+                selectedCategory?.displayName ?? "筛选分类",
+                systemImage: selectedCategory == nil ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill"
+            )
         }
     }
 
@@ -193,7 +285,7 @@ struct ContentView: View {
             Section {
                 HStack(spacing: 12) {
                     SummaryItem(
-                        value: "\(store.subscriptions.count)",
+                        value: "\(subscriptions.count)",
                         title: "全部会员",
                         systemImage: "square.grid.2x2"
                     )
@@ -207,23 +299,58 @@ struct ContentView: View {
                 .padding(.vertical, 8)
             }
 
-            Section("按到期日") {
-                ForEach(sortedSubscriptions) { subscription in
-                    Button {
-                        editorRoute = .edit(subscription)
-                    } label: {
-                        SubscriptionRow(subscription: subscription)
-                    }
-                    .buttonStyle(.plain)
-                    .swipeActions(edge: .trailing) {
-                        Button("删除", role: .destructive) {
-                            store.delete(id: subscription.id)
+            ForEach(categoryGroups) { group in
+                Section {
+                    ForEach(group.subscriptions) { subscription in
+                        Button {
+                            editorRoute = .edit(subscription)
+                        } label: {
+                            SubscriptionRow(subscription: subscription)
+                        }
+                        .buttonStyle(.plain)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button("删除") {
+                                pendingDeletion = subscription
+                            }
+                            .tint(.red)
                         }
                     }
+                } header: {
+                    Label(
+                        group.category.displayName,
+                        systemImage: group.category.systemImage
+                    )
                 }
             }
         }
     }
+
+    private func save(_ subscription: Subscription, replacing existing: Subscription?) {
+        if let existing {
+            existing.name = subscription.name
+            existing.expirationDate = subscription.expirationDate
+            existing.renewalInterval = subscription.renewalInterval
+            existing.renewalUnit = subscription.renewalUnit
+            existing.autoRenews = subscription.autoRenews
+            existing.category = subscription.category
+        } else {
+            modelContext.insert(subscription)
+        }
+
+        try? modelContext.save()
+    }
+
+    private func delete(_ subscription: Subscription) {
+        modelContext.delete(subscription)
+        try? modelContext.save()
+    }
+}
+
+private struct SubscriptionCategoryGroup: Identifiable {
+    let category: SubscriptionCategory
+    let subscriptions: [Subscription]
+
+    var id: SubscriptionCategory { category }
 }
 
 private struct SummaryItem: View {
@@ -258,13 +385,11 @@ private struct SubscriptionRow: View {
         let days = subscription.daysRemaining()
         switch days {
         case ..<0:
-            return "已到期"
+            return "已到期 \(-days) 天"
         case 0:
             return "今天到期"
-        case 1...30:
-            return "还有 \(days) 天"
         default:
-            return subscription.expirationDate.formatted(date: .abbreviated, time: .omitted)
+            return "还有 \(days) 天"
         }
     }
 
@@ -281,11 +406,11 @@ private struct SubscriptionRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "app.fill")
+            Image(systemName: subscription.category.systemImage)
                 .font(.title2)
                 .foregroundStyle(.white)
                 .frame(width: 44, height: 44)
-                .background(.tint.gradient, in: .rect(cornerRadius: 10))
+                .background(.tint, in: .rect(cornerRadius: 10))
 
             VStack(alignment: .leading, spacing: 5) {
                 Text(subscription.name)
@@ -293,13 +418,14 @@ private struct SubscriptionRow: View {
                     .foregroundStyle(.primary)
                     .lineLimit(1)
 
-                HStack(spacing: 6) {
+                HStack(spacing: 5) {
                     Text(subscription.cycleDescription)
-                    Text("·")
-                    Label(
-                        subscription.autoRenews ? "自动续费" : "手动续费",
-                        systemImage: subscription.autoRenews ? "arrow.trianglehead.2.clockwise.rotate.90" : "hand.tap"
+                    Image(
+                        systemName: subscription.autoRenews
+                            ? "arrow.trianglehead.2.clockwise.rotate.90"
+                            : "hand.tap"
                     )
+                    .accessibilityLabel(subscription.autoRenews ? "自动续费" : "手动续费")
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -308,12 +434,16 @@ private struct SubscriptionRow: View {
             Spacer()
 
             VStack(alignment: .trailing, spacing: 4) {
+                Text(
+                    subscription.expirationDate,
+                    format: .dateTime.year().month(.abbreviated).day()
+                )
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+
                 Text(remainingText)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.caption)
                     .foregroundStyle(urgencyColor)
-                Text(subscription.expirationDate, format: .dateTime.year().month().day())
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 3)
@@ -327,12 +457,12 @@ private enum EditorRoute: Identifiable {
     case new
     case edit(Subscription)
 
-    var id: UUID {
+    var id: String {
         switch self {
         case .new:
-            UUID()
+            "new"
         case .edit(let subscription):
-            subscription.id
+            subscription.id.uuidString
         }
     }
 
@@ -358,6 +488,7 @@ private struct SubscriptionEditor: View {
     @State private var renewalInterval: Int
     @State private var renewalUnit: RenewalUnit
     @State private var autoRenews: Bool
+    @State private var category: SubscriptionCategory
     @State private var showsDeleteConfirmation = false
 
     init(
@@ -374,6 +505,7 @@ private struct SubscriptionEditor: View {
         _renewalInterval = State(initialValue: subscription?.renewalInterval ?? 1)
         _renewalUnit = State(initialValue: subscription?.renewalUnit ?? .month)
         _autoRenews = State(initialValue: subscription?.autoRenews ?? true)
+        _category = State(initialValue: subscription?.category ?? .other)
     }
 
     var body: some View {
@@ -382,6 +514,13 @@ private struct SubscriptionEditor: View {
                 Section("应用") {
                     TextField("例如：Netflix", text: $name)
                         .textInputAutocapitalization(.words)
+
+                    Picker("分类", selection: $category) {
+                        ForEach(SubscriptionCategory.allCases) { category in
+                            Label(category.displayName, systemImage: category.systemImage)
+                                .tag(category)
+                        }
+                    }
                 }
 
                 Section("有效期") {
@@ -432,10 +571,9 @@ private struct SubscriptionEditor: View {
                     .disabled(trimmedName.isEmpty)
                 }
             }
-            .confirmationDialog(
+            .alert(
                 "确定删除这个会员吗？",
-                isPresented: $showsDeleteConfirmation,
-                titleVisibility: .visible
+                isPresented: $showsDeleteConfirmation
             ) {
                 Button("删除", role: .destructive) {
                     onDelete?()
@@ -457,7 +595,8 @@ private struct SubscriptionEditor: View {
             expirationDate: expirationDate,
             renewalInterval: renewalInterval,
             renewalUnit: renewalUnit,
-            autoRenews: autoRenews
+            autoRenews: autoRenews,
+            category: category
         ).cycleDescription
     }
 
@@ -468,34 +607,14 @@ private struct SubscriptionEditor: View {
             expirationDate: expirationDate,
             renewalInterval: renewalInterval,
             renewalUnit: renewalUnit,
-            autoRenews: autoRenews
+            autoRenews: autoRenews,
+            category: category
         )
         onSave(subscription)
         dismiss()
     }
 }
 
-#Preview("有会员") {
-    let store = SubscriptionStore()
-    store.subscriptions = [
-        Subscription(
-            name: "Netflix",
-            expirationDate: .now.addingTimeInterval(8 * 86_400),
-            renewalInterval: 1,
-            renewalUnit: .month,
-            autoRenews: true
-        ),
-        Subscription(
-            name: "ChatGPT Plus",
-            expirationDate: .now.addingTimeInterval(45 * 86_400),
-            renewalInterval: 1,
-            renewalUnit: .month,
-            autoRenews: false
-        )
-    ]
-    return ContentView()
-}
-
-#Preview("空状态") {
+#Preview {
     ContentView()
 }
