@@ -1,15 +1,18 @@
 import SwiftData
 import SwiftUI
+import UserNotifications
 
 @Model
 final class Subscription {
-    var id: UUID
-    var name: String
-    var expirationDate: Date
-    var renewalInterval: Int
-    var renewalUnitRawValue: String
-    var autoRenews: Bool
-    var categoryRawValue: String
+    var id: UUID = UUID()
+    var name: String = ""
+    var expirationDate: Date = Date.now
+    var renewalInterval: Int = 1
+    var renewalUnitRawValue: String = "month"
+    var autoRenews: Bool = false
+    var categoryRawValue: String = "other"
+    var reminderEnabled: Bool = false
+    var reminderDaysBefore: Int = 3
 
     var renewalUnit: RenewalUnit {
         get { RenewalUnit(rawValue: renewalUnitRawValue) ?? .month }
@@ -28,7 +31,9 @@ final class Subscription {
         renewalInterval: Int,
         renewalUnit: RenewalUnit,
         autoRenews: Bool,
-        category: SubscriptionCategory = .other
+        category: SubscriptionCategory = .other,
+        reminderEnabled: Bool = true,
+        reminderDaysBefore: Int = 3
     ) {
         self.id = id
         self.name = name
@@ -37,6 +42,8 @@ final class Subscription {
         renewalUnitRawValue = renewalUnit.rawValue
         self.autoRenews = autoRenews
         categoryRawValue = category.rawValue
+        self.reminderEnabled = reminderEnabled
+        self.reminderDaysBefore = reminderDaysBefore
     }
 
     var cycleDescription: String {
@@ -150,6 +157,82 @@ enum SubscriptionCategory: String, Codable, CaseIterable, Identifiable {
         case .other:
             "square.grid.2x2.fill"
         }
+    }
+}
+
+@MainActor
+private enum SubscriptionReminderScheduler {
+    private static let identifierPrefix = "subscription-reminder-"
+
+    static func update(for subscription: Subscription) {
+        let center = UNUserNotificationCenter.current()
+        let identifier = identifierPrefix + subscription.id.uuidString
+        center.removePendingNotificationRequests(withIdentifiers: [identifier])
+
+        guard subscription.reminderEnabled else {
+            return
+        }
+
+        let calendar = Calendar.current
+        let expirationDay = calendar.startOfDay(for: subscription.expirationDate)
+        guard
+            let reminderDay = calendar.date(
+                byAdding: .day,
+                value: -subscription.reminderDaysBefore,
+                to: expirationDay
+            ),
+            let reminderDate = calendar.date(bySettingHour: 9, minute: 0, second: 0, of: reminderDay),
+            reminderDate > .now
+        else {
+            return
+        }
+
+        let name = subscription.name
+        let expirationText = subscription.expirationDate.formatted(
+            .dateTime
+                .year()
+                .month()
+                .day()
+                .locale(Locale(identifier: "zh_Hans_CN"))
+        )
+        let triggerComponents = calendar.dateComponents(
+            [.year, .month, .day, .hour, .minute],
+            from: reminderDate
+        )
+
+        Task { @MainActor in
+            do {
+                let granted = try await center.requestAuthorization(options: [.alert, .sound])
+                guard granted else {
+                    return
+                }
+
+                let content = UNMutableNotificationContent()
+                content.title = "\(name) 即将到期"
+                content.body = "会员将在 \(expirationText) 到期，请检查续费设置。"
+                content.sound = .default
+                content.threadIdentifier = "subscription-reminders"
+
+                let trigger = UNCalendarNotificationTrigger(
+                    dateMatching: triggerComponents,
+                    repeats: false
+                )
+                let request = UNNotificationRequest(
+                    identifier: identifier,
+                    content: content,
+                    trigger: trigger
+                )
+                try await center.add(request)
+            } catch {
+                // Keep the membership record even if notification scheduling fails.
+            }
+        }
+    }
+
+    static func cancel(for subscription: Subscription) {
+        UNUserNotificationCenter.current().removePendingNotificationRequests(
+            withIdentifiers: [identifierPrefix + subscription.id.uuidString]
+        )
     }
 }
 
@@ -326,6 +409,8 @@ struct ContentView: View {
     }
 
     private func save(_ subscription: Subscription, replacing existing: Subscription?) {
+        let savedSubscription: Subscription
+
         if let existing {
             existing.name = subscription.name
             existing.expirationDate = subscription.expirationDate
@@ -333,14 +418,20 @@ struct ContentView: View {
             existing.renewalUnit = subscription.renewalUnit
             existing.autoRenews = subscription.autoRenews
             existing.category = subscription.category
+            existing.reminderEnabled = subscription.reminderEnabled
+            existing.reminderDaysBefore = subscription.reminderDaysBefore
+            savedSubscription = existing
         } else {
             modelContext.insert(subscription)
+            savedSubscription = subscription
         }
 
         try? modelContext.save()
+        SubscriptionReminderScheduler.update(for: savedSubscription)
     }
 
     private func delete(_ subscription: Subscription) {
+        SubscriptionReminderScheduler.cancel(for: subscription)
         modelContext.delete(subscription)
         try? modelContext.save()
     }
@@ -426,6 +517,11 @@ private struct SubscriptionRow: View {
                             : "hand.tap"
                     )
                     .accessibilityLabel(subscription.autoRenews ? "自动续费" : "手动续费")
+
+                    if subscription.reminderEnabled {
+                        Image(systemName: "bell.fill")
+                            .accessibilityLabel("提前 \(subscription.reminderDaysBefore) 天提醒")
+                    }
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -489,6 +585,8 @@ private struct SubscriptionEditor: View {
     @State private var renewalUnit: RenewalUnit
     @State private var autoRenews: Bool
     @State private var category: SubscriptionCategory
+    @State private var reminderEnabled: Bool
+    @State private var reminderDaysBefore: Int
     @State private var showsDeleteConfirmation = false
 
     init(
@@ -506,6 +604,8 @@ private struct SubscriptionEditor: View {
         _renewalUnit = State(initialValue: subscription?.renewalUnit ?? .month)
         _autoRenews = State(initialValue: subscription?.autoRenews ?? true)
         _category = State(initialValue: subscription?.category ?? .other)
+        _reminderEnabled = State(initialValue: subscription?.reminderEnabled ?? true)
+        _reminderDaysBefore = State(initialValue: subscription?.reminderDaysBefore ?? 3)
     }
 
     var body: some View {
@@ -529,6 +629,22 @@ private struct SubscriptionEditor: View {
                         selection: $expirationDate,
                         displayedComponents: .date
                     )
+                }
+
+                Section {
+                    Toggle("启用提醒", isOn: $reminderEnabled)
+
+                    if reminderEnabled {
+                        Stepper(value: $reminderDaysBefore, in: 0...30) {
+                            LabeledContent("提醒时间", value: reminderTimingText)
+                        }
+                    }
+                } header: {
+                    Text("到期提醒")
+                } footer: {
+                    if reminderEnabled {
+                        Text("提醒将在所选日期上午 9:00 发送。")
+                    }
                 }
 
                 Section("续费设置") {
@@ -589,6 +705,13 @@ private struct SubscriptionEditor: View {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private var reminderTimingText: String {
+        if reminderDaysBefore == 0 {
+            return "到期当天"
+        }
+        return "提前 \(reminderDaysBefore) 天"
+    }
+
     private var cyclePreview: String {
         Subscription(
             name: "",
@@ -608,7 +731,9 @@ private struct SubscriptionEditor: View {
             renewalInterval: renewalInterval,
             renewalUnit: renewalUnit,
             autoRenews: autoRenews,
-            category: category
+            category: category,
+            reminderEnabled: reminderEnabled,
+            reminderDaysBefore: reminderDaysBefore
         )
         onSave(subscription)
         dismiss()

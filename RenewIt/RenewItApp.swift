@@ -7,7 +7,9 @@ struct RenewItApp: App {
 
     init() {
         do {
-            let configuration = ModelConfiguration(cloudKitDatabase: .none)
+            let configuration = ModelConfiguration(
+                cloudKitDatabase: .private("iCloud.com.carl.RenewIt")
+            )
             modelContainer = try ModelContainer(
                 for: Subscription.self,
                 configurations: configuration
@@ -62,7 +64,8 @@ struct RenewItApp: App {
                         renewalInterval: legacy.renewalInterval,
                         renewalUnit: legacy.renewalUnit,
                         autoRenews: legacy.autoRenews,
-                        category: legacy.category ?? .other
+                        category: legacy.category ?? .other,
+                        reminderEnabled: false
                     )
                 )
             }

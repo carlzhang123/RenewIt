@@ -12,6 +12,9 @@ RenewIt 是一款用于集中记录互联网应用会员有效期的 iOS 应用�
 - 按到期时间排序
 - 显示剩余天数、今日到期和已过期状态
 - 汇总 30 天内即将到期的会员
+- 为每条会员记录单独开启或关闭到期提醒
+- 自定义提前 0～30 天提醒，新会员默认提前 3 天
+- 在提醒日上午 9:00 发送本地通知
 - 删除前进行二次弹窗确认
 - 使用简体中文日期与日期选择界面
 
@@ -29,9 +32,11 @@ RenewIt 是一款用于集中记录互联网应用会员有效期的 iOS 应用�
 
 ## 数据存储
 
-项目使用 SwiftData 在设备本地保存会员记录。首次运行新版本时，应用会尝试将旧版 `UserDefaults` 数据一次性迁移到 SwiftData，并保留旧数据作为备份。
+项目使用 SwiftData 保存会员记录。首次运行新版本时，应用会尝试将旧版 `UserDefaults` 数据一次性迁移到 SwiftData，并保留旧数据作为备份。
 
-数据模型使用稳定的 UUID 和 CloudKit 兼容的基础字段。项目已经预留 CloudKit capability，但当前 `ModelConfiguration` 明确使用 `.none`，因此暂未开启 iCloud 同步。
+数据模型使用稳定的 UUID 和 CloudKit 兼容字段。项目已启用 CloudKit capability，并通过私有容器 `iCloud.com.carl.RenewIt` 在登录同一 iCloud 账号的设备之间同步会员记录。SwiftData 会保留本地副本，因此离线时仍可查看和编辑数据，联网后自动同步。
+
+到期提醒使用系统本地通知。新增会员时提醒默认开启并提前 3 天，首次保存开启提醒的会员时，系统会请求通知权限。修改到期日或提醒时间会重新安排通知，关闭提醒或删除会员会取消对应通知。
 
 ## 技术栈
 
@@ -45,13 +50,13 @@ RenewIt 是一款用于集中记录互联网应用会员有效期的 iOS 应用�
 
 1. 使用 Xcode 打开 `RenewIt.xcodeproj`。
 2. 选择可用的 iPhone 模拟器或真机。
-3. 根据需要配置开发团队和签名。
-4. 构建并运行 `RenewIt` scheme。
+3. 配置拥有 `iCloud.com.carl.RenewIt` 容器权限的开发团队和签名。
+4. 在设备上登录 iCloud，并允许 RenewIt 发送通知。
+5. 构建并运行 `RenewIt` scheme。
 
 ## 后续计划
 
-- 启用 SwiftData 与 CloudKit 的 iCloud 同步
-- 增加到期提醒
+- 增加 iCloud 同步状态提示与故障诊断
 - 支持会员价格和支出统计
 - 支持自定义应用图标与更多分类
 
