@@ -8,14 +8,14 @@ final class Subscription {
     var name: String = ""
     var expirationDate: Date = Date.now
     var renewalInterval: Int = 1
-    var renewalUnitRawValue: String = "month"
+    var renewalUnitRawValue: String = "year"
     var autoRenews: Bool = false
     var categoryRawValue: String = "other"
     var reminderEnabled: Bool = false
     var reminderDaysBefore: Int = 3
 
     var renewalUnit: RenewalUnit {
-        get { RenewalUnit(rawValue: renewalUnitRawValue) ?? .month }
+        get { RenewalUnit(rawValue: renewalUnitRawValue) ?? .year }
         set { renewalUnitRawValue = newValue.rawValue }
     }
 
@@ -601,7 +601,7 @@ private struct SubscriptionEditor: View {
         _name = State(initialValue: subscription?.name ?? "")
         _expirationDate = State(initialValue: subscription?.expirationDate ?? .now)
         _renewalInterval = State(initialValue: subscription?.renewalInterval ?? 1)
-        _renewalUnit = State(initialValue: subscription?.renewalUnit ?? .month)
+        _renewalUnit = State(initialValue: subscription?.renewalUnit ?? .year)
         _autoRenews = State(initialValue: subscription?.autoRenews ?? true)
         _category = State(initialValue: subscription?.category ?? .other)
         _reminderEnabled = State(initialValue: subscription?.reminderEnabled ?? true)
