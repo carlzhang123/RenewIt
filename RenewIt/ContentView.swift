@@ -287,6 +287,9 @@ struct ContentView: View {
                     subscriptionList
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(MembershipBackground())
+            .tint(.teal)
             .navigationTitle("我的会员")
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
@@ -351,35 +354,33 @@ struct ContentView: View {
     }
 
     private var emptyState: some View {
-        ContentUnavailableView {
-            Label("还没有会员记录", systemImage: "calendar.badge.clock")
-        } description: {
-            Text("添加互联网应用会员，集中管理到期日和续费方式。")
-        } actions: {
-            Button("添加第一个会员") {
-                editorRoute = .new
+        ScrollView {
+            VStack(spacing: 32) {
+                MembershipOverview(total: 0, expiring: 0)
+                ContentUnavailableView {
+                    Label("美好生活，从有序开始", systemImage: "calendar.badge.clock")
+                } description: {
+                    Text("添加你的第一个会员，\n让每一次续费都有准备。")
+                } actions: {
+                    Button("添加第一个会员", systemImage: "plus") {
+                        editorRoute = .new
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .buttonBorderShape(.capsule)
+                }
             }
-            .buttonStyle(.borderedProminent)
+            .padding(20)
         }
     }
 
     private var subscriptionList: some View {
         List {
             Section {
-                HStack(spacing: 12) {
-                    SummaryItem(
-                        value: "\(subscriptions.count)",
-                        title: "全部会员",
-                        systemImage: "square.grid.2x2"
-                    )
-                    Divider()
-                    SummaryItem(
-                        value: "\(expiringSoonCount)",
-                        title: "30 天内到期",
-                        systemImage: "clock.badge.exclamationmark"
-                    )
-                }
-                .padding(.vertical, 8)
+                MembershipOverview(total: subscriptions.count, expiring: expiringSoonCount)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
             }
 
             ForEach(categoryGroups) { group in
@@ -391,6 +392,9 @@ struct ContentView: View {
                             SubscriptionRow(subscription: subscription)
                         }
                         .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                             Button("删除") {
                                 pendingDeletion = subscription
@@ -399,13 +403,20 @@ struct ContentView: View {
                         }
                     }
                 } header: {
-                    Label(
-                        group.category.displayName,
-                        systemImage: group.category.systemImage
-                    )
+                    HStack {
+                        Label(group.category.displayName, systemImage: group.category.systemImage)
+                            .foregroundStyle(group.category.accentColor)
+                        Spacer()
+                        Text("\(group.subscriptions.count)")
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .textCase(nil)
                 }
             }
         }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
     }
 
     private func save(_ subscription: Subscription, replacing existing: Subscription?) {
@@ -444,27 +455,99 @@ private struct SubscriptionCategoryGroup: Identifiable {
     var id: SubscriptionCategory { category }
 }
 
-private struct SummaryItem: View {
-    let value: String
-    let title: LocalizedStringKey
-    let systemImage: String
+private struct MembershipBackground: View {
+    var body: some View {
+        LinearGradient(
+            colors: [Color.teal.opacity(0.09), Color.primary.opacity(0.025)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        .ignoresSafeArea()
+    }
+}
+
+private extension SubscriptionCategory {
+    var accentColor: Color {
+        switch self {
+        case .entertainment: .purple
+        case .workAndLife: .blue
+        case .education: .indigo
+        case .artificialIntelligence: .teal
+        case .cloudServices: .cyan
+        case .healthAndFitness: .pink
+        case .shopping: .orange
+        case .gaming: .green
+        case .other: .gray
+        }
+    }
+}
+
+private struct MembershipOverview: View {
+    let total: Int
+    let expiring: Int
 
     var body: some View {
-        HStack {
-            Image(systemName: systemImage)
-                .font(.title2)
-                .foregroundStyle(.tint)
-                .frame(width: 34)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(value)
-                    .font(.title2.bold())
-                    .monospacedDigit()
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 24) {
+            HStack {
+                Label("RENEW IT", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
+                    .font(.caption.weight(.bold))
+                    .tracking(2)
+                Spacer()
+                Image(systemName: "sparkle")
+                    .font(.title2)
+                    .accessibilityHidden(true)
             }
-            Spacer()
+            VStack(alignment: .leading, spacing: 6) {
+                Text("每一份订阅，心中有数。")
+                    .font(.title2.weight(.bold))
+                Text("把到期日记在这里，把精力留给生活。")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.8))
+            }
+            HStack(alignment: .top, spacing: 24) {
+                SummaryItem(value: total, title: "全部会员")
+                Rectangle()
+                    .fill(.white.opacity(0.25))
+                    .frame(width: 1, height: 50)
+                    .accessibilityHidden(true)
+                SummaryItem(value: expiring, title: "30 天内到期")
+            }
         }
+        .foregroundStyle(.white)
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            LinearGradient(
+                colors: [Color(red: 0.06, green: 0.29, blue: 0.29),
+                         Color(red: 0.08, green: 0.43, blue: 0.40)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .overlay(alignment: .topTrailing) {
+                Circle()
+                    .stroke(.white.opacity(0.07), lineWidth: 34)
+                    .frame(width: 180, height: 180)
+                    .offset(x: 65, y: -60)
+            }
+        }
+        .clipShape(.rect(cornerRadius: 28))
+    }
+}
+
+private struct SummaryItem: View {
+    let value: Int
+    let title: LocalizedStringKey
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(value, format: .number)
+                .font(.system(.largeTitle, design: .rounded, weight: .semibold))
+                .monospacedDigit()
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.8))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
 }
@@ -499,15 +582,15 @@ private struct SubscriptionRow: View {
         HStack(spacing: 12) {
             Image(systemName: subscription.category.systemImage)
                 .font(.title2)
-                .foregroundStyle(.white)
-                .frame(width: 44, height: 44)
-                .background(.tint, in: .rect(cornerRadius: 10))
+                .foregroundStyle(subscription.category.accentColor)
+                .frame(width: 48, height: 48)
+                .background(subscription.category.accentColor.opacity(0.12), in: .rect(cornerRadius: 16))
 
             VStack(alignment: .leading, spacing: 5) {
                 Text(subscription.name)
                     .font(.headline)
                     .foregroundStyle(.primary)
-                    .lineLimit(1)
+                    .lineLimit(2)
 
                 HStack(spacing: 5) {
                     Text(subscription.cycleDescription)
@@ -540,9 +623,17 @@ private struct SubscriptionRow: View {
                 Text(remainingText)
                     .font(.caption)
                     .foregroundStyle(urgencyColor)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(urgencyColor.opacity(0.1), in: .capsule)
             }
         }
-        .padding(.vertical, 3)
+        .padding(16)
+        .background(.background, in: .rect(cornerRadius: 22))
+        .overlay {
+            RoundedRectangle(cornerRadius: 22)
+                .strokeBorder(subscription.category.accentColor.opacity(0.12), lineWidth: 1)
+        }
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
         .accessibilityHint("轻点编辑会员")
@@ -569,6 +660,29 @@ private enum EditorRoute: Identifiable {
         case .edit(let subscription):
             subscription
         }
+    }
+}
+
+private struct MembershipEditorHeader: View {
+    let name: String
+    let category: SubscriptionCategory
+
+    var body: some View {
+        HStack(spacing: 16) {
+            Image(systemName: category.systemImage)
+                .font(.title)
+                .foregroundStyle(category.accentColor)
+                .frame(width: 60, height: 60)
+                .background(category.accentColor.opacity(0.12), in: .rect(cornerRadius: 18))
+            VStack(alignment: .leading, spacing: 6) {
+                Text(name.isEmpty ? "记录一份美好" : name)
+                    .font(.title3.bold())
+                Text("到期、续费、提醒，一处安排。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 8)
     }
 }
 
@@ -611,6 +725,11 @@ private struct SubscriptionEditor: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    MembershipEditorHeader(name: trimmedName, category: category)
+                        .listRowBackground(Color.clear)
+                }
+
                 Section("应用") {
                     TextField("例如：Netflix", text: $name)
                         .textInputAutocapitalization(.words)
@@ -671,6 +790,9 @@ private struct SubscriptionEditor: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(MembershipBackground())
+            .tint(.teal)
             .navigationTitle(originalSubscription == nil ? "添加会员" : "编辑会员")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -742,4 +864,5 @@ private struct SubscriptionEditor: View {
 
 #Preview {
     ContentView()
+        .modelContainer(for: Subscription.self, inMemory: true)
 }
