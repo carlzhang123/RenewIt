@@ -70,6 +70,13 @@ final class Subscription {
     }
 }
 
+private extension Subscription {
+    var expiresWithinThirtyDays: Bool {
+        let days = daysRemaining()
+        return (0...30).contains(days)
+    }
+}
+
 enum RenewalUnit: String, Codable, CaseIterable, Identifiable {
     case week
     case month
@@ -242,6 +249,7 @@ struct ContentView: View {
     @State private var editorRoute: EditorRoute?
     @State private var pendingDeletion: Subscription?
     @State private var selectedCategory: SubscriptionCategory?
+    @State private var showsExpiringSoon = false
 
     private var sortedSubscriptions: [Subscription] {
         let subscriptions = if let selectedCategory {
@@ -249,7 +257,9 @@ struct ContentView: View {
         } else {
             subscriptions
         }
-        return subscriptions.sorted { $0.expirationDate < $1.expirationDate }
+        return subscriptions
+            .filter { !showsExpiringSoon || $0.expiresWithinThirtyDays }
+            .sorted { $0.expirationDate < $1.expirationDate }
     }
 
     private var categoryGroups: [SubscriptionCategoryGroup] {
@@ -266,10 +276,7 @@ struct ContentView: View {
     }
 
     private var expiringSoonCount: Int {
-        subscriptions.filter {
-            let remaining = $0.daysRemaining()
-            return remaining >= 0 && remaining <= 30
-        }.count
+        subscriptions.filter(\.expiresWithinThirtyDays).count
     }
 
     var body: some View {
@@ -277,12 +284,7 @@ struct ContentView: View {
             Group {
                 if subscriptions.isEmpty {
                     emptyState
-                } else if sortedSubscriptions.isEmpty {
-                    ContentUnavailableView(
-                        "这个分类还没有会员",
-                        systemImage: "line.3.horizontal.decrease.circle",
-                        description: Text("可以选择其他分类，或添加一条新记录。")
-                    )
+
                 } else {
                     subscriptionList
                 }
@@ -356,7 +358,15 @@ struct ContentView: View {
     private var emptyState: some View {
         ScrollView {
             VStack(spacing: 32) {
-                MembershipOverview(total: 0, expiring: 0)
+                MembershipOverview(total: 0, expiring: 0, showsExpiringSoon: showsExpiringSoon,
+                    onShowAll: {
+                        showsExpiringSoon = false
+                        selectedCategory = nil
+                    },
+                    onShowExpiring: {
+                        showsExpiringSoon = true
+                        selectedCategory = nil
+                    })
                 ContentUnavailableView {
                     Label("美好生活，从有序开始", systemImage: "calendar.badge.clock")
                 } description: {
@@ -377,10 +387,46 @@ struct ContentView: View {
     private var subscriptionList: some View {
         List {
             Section {
-                MembershipOverview(total: subscriptions.count, expiring: expiringSoonCount)
+                MembershipOverview(
+                    total: subscriptions.count,
+                    expiring: expiringSoonCount,
+                    showsExpiringSoon: showsExpiringSoon,
+                    onShowAll: {
+                        showsExpiringSoon = false
+                        selectedCategory = nil
+                    },
+                    onShowExpiring: {
+                        showsExpiringSoon = true
+                        selectedCategory = nil
+                    }
+                )
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
+            }
+
+            if showsExpiringSoon || selectedCategory != nil {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(showsExpiringSoon ? "正在查看：30 天内到期" : "正在查看：分类筛选")
+                            .font(.subheadline.weight(.semibold))
+                        Button("查看全部", systemImage: "arrow.uturn.backward") {
+                            showsExpiringSoon = false
+                            selectedCategory = nil
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    .listRowBackground(Color.clear)
+                }
+            }
+
+            if sortedSubscriptions.isEmpty {
+                ContentUnavailableView(
+                    showsExpiringSoon ? "暂无 30 天内到期的会员" : "这个分类还没有会员",
+                    systemImage: "calendar.badge.checkmark",
+                    description: Text("可以查看全部会员，或选择其他分类。")
+                )
+                .listRowBackground(Color.clear)
             }
 
             ForEach(categoryGroups) { group in
@@ -485,6 +531,9 @@ private extension SubscriptionCategory {
 private struct MembershipOverview: View {
     let total: Int
     let expiring: Int
+    let showsExpiringSoon: Bool
+    let onShowAll: () -> Void
+    let onShowExpiring: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -505,12 +554,25 @@ private struct MembershipOverview: View {
                     .foregroundStyle(.white.opacity(0.8))
             }
             HStack(alignment: .top, spacing: 24) {
-                SummaryItem(value: total, title: "全部会员")
+                Button(action: onShowAll) {
+                    SummaryItem(value: total, title: "全部会员")
+                        .padding(10)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("清除筛选，查看全部会员")
                 Rectangle()
                     .fill(.white.opacity(0.25))
                     .frame(width: 1, height: 50)
                     .accessibilityHidden(true)
-                SummaryItem(value: expiring, title: "30 天内到期")
+                Button(action: onShowExpiring) {
+                    SummaryItem(value: expiring, title: "30 天内到期")
+                        .padding(10)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(showsExpiringSoon ? .isSelected : [])
+                .accessibilityHint("筛选从今天起 30 天内到期的会员")
             }
         }
         .foregroundStyle(.white)
