@@ -292,7 +292,7 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(MembershipBackground())
             .tint(.teal)
-            .navigationTitle("我的会员")
+            .navigationTitle("会员卡包")
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
                     categoryFilterMenu
@@ -461,7 +461,8 @@ struct ContentView: View {
                 }
             }
         }
-        .listStyle(.insetGrouped)
+        .listStyle(.plain)
+        .contentMargins(.horizontal, 20, for: .scrollContent)
         .scrollContentBackground(.hidden)
     }
 
@@ -546,13 +547,6 @@ private struct MembershipOverview: View {
                     .font(.title2)
                     .accessibilityHidden(true)
             }
-            VStack(alignment: .leading, spacing: 6) {
-                Text("每一份订阅，心中有数。")
-                    .font(.title2.weight(.bold))
-                Text("把到期日记在这里，把精力留给生活。")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.8))
-            }
             HStack(alignment: .top, spacing: 24) {
                 Button(action: onShowAll) {
                     SummaryItem(value: total, title: "全部会员")
@@ -576,7 +570,7 @@ private struct MembershipOverview: View {
             }
         }
         .foregroundStyle(.white)
-        .padding(24)
+        .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
             LinearGradient(
@@ -641,60 +635,55 @@ private struct SubscriptionRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: subscription.category.systemImage)
-                .font(.title2)
-                .foregroundStyle(subscription.category.accentColor)
-                .frame(width: 48, height: 48)
-                .background(subscription.category.accentColor.opacity(0.12), in: .rect(cornerRadius: 16))
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text(subscription.name)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-
-                HStack(spacing: 5) {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(spacing: 14) {
+                Image(systemName: subscription.category.systemImage)
+                    .font(.title2)
+                    .foregroundStyle(subscription.category.accentColor)
+                    .frame(width: 48, height: 48)
+                    .background(subscription.category.accentColor.opacity(0.12), in: .rect(cornerRadius: 16))
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(subscription.name)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.primary)
                     Text(subscription.cycleDescription)
-                    Image(
-                        systemName: subscription.autoRenews
-                            ? "arrow.trianglehead.2.clockwise.rotate.90"
-                            : "hand.tap"
-                    )
-                    .accessibilityLabel(subscription.autoRenews ? "自动续费" : "手动续费")
-
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "arrow.up.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            HStack(alignment: .bottom) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(subscription.autoRenews ? "下次自动续费" : "会员有效期至")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text(subscription.expirationDate, format: .dateTime.year().month().day())
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 5) {
+                    Text(remainingText)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(urgencyColor)
                     if subscription.reminderEnabled {
-                        Image(systemName: "bell.fill")
-                            .accessibilityLabel("提前 \(subscription.reminderDaysBefore) 天提醒")
+                        Label("已开启提醒", systemImage: "bell")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                     }
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(
-                    subscription.expirationDate,
-                    format: .dateTime.year().month(.abbreviated).day()
-                )
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
-
-                Text(remainingText)
-                    .font(.caption)
-                    .foregroundStyle(urgencyColor)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
-                    .background(urgencyColor.opacity(0.1), in: .capsule)
             }
         }
-        .padding(16)
-        .background(.background, in: .rect(cornerRadius: 22))
-        .overlay {
-            RoundedRectangle(cornerRadius: 22)
-                .strokeBorder(subscription.category.accentColor.opacity(0.12), lineWidth: 1)
+        .padding(20)
+        .background(.background, in: .rect(cornerRadius: 24))
+        .overlay(alignment: .top) {
+            UnevenRoundedRectangle(topLeadingRadius: 3, topTrailingRadius: 3)
+                .fill(subscription.category.accentColor.opacity(0.55))
+                .frame(width: 36, height: 3)
+                .accessibilityHidden(true)
         }
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
@@ -725,28 +714,210 @@ private enum EditorRoute: Identifiable {
     }
 }
 
-private struct MembershipEditorHeader: View {
-    let name: String
+
+private struct MembershipIdentityCard: View {
+    @Binding var name: String
     let category: SubscriptionCategory
+    let expirationDate: Date
 
     var body: some View {
-        HStack(spacing: 16) {
-            Image(systemName: category.systemImage)
-                .font(.title)
-                .foregroundStyle(category.accentColor)
-                .frame(width: 60, height: 60)
-                .background(category.accentColor.opacity(0.12), in: .rect(cornerRadius: 18))
-            VStack(alignment: .leading, spacing: 6) {
-                Text(name.isEmpty ? "记录一份美好" : name)
-                    .font(.title3.bold())
-                Text("到期、续费、提醒，一处安排。")
+        VStack(alignment: .leading, spacing: 28) {
+            HStack {
+                Image(systemName: category.systemImage)
+                    .font(.title2)
+                    .frame(width: 48, height: 48)
+                    .background(.white.opacity(0.15), in: .rect(cornerRadius: 16))
+                Spacer()
+                Text("RENEW IT / MEMBER")
+                    .font(.caption2.weight(.bold))
+                    .tracking(2)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text("会员名称").font(.caption).foregroundStyle(.white.opacity(0.75))
+                TextField("", text: $name, prompt: Text("例如 Netflix").foregroundStyle(.white.opacity(0.55)))
+                    .font(.system(.title, design: .rounded, weight: .bold))
+                    .textInputAutocapitalization(.words)
+                    .accessibilityLabel("会员名称")
+                    .tint(.white)
+            }
+            HStack {
+                Text(category.displayName)
+                Spacer()
+                Text(expirationDate, format: .dateTime.year().month().day())
+            }
+            .font(.caption)
+            .foregroundStyle(.white.opacity(0.8))
+        }
+        .foregroundStyle(.white)
+        .padding(24)
+        .background(
+            LinearGradient(colors: [Color(red: 0.05, green: 0.25, blue: 0.25), Color(red: 0.12, green: 0.43, blue: 0.38)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing),
+            in: .rect(cornerRadius: 28)
+        )
+    }
+}
+
+private struct EditorSectionTitle: View {
+    let title: LocalizedStringKey
+    var body: some View {
+        Text(title).font(.headline)
+    }
+}
+
+private struct SelectionChip: View {
+    let title: String
+    let symbol: String
+    let selected: Bool
+    var color: Color = .teal
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .font(.subheadline.weight(selected ? .semibold : .regular))
+                .frame(maxWidth: .infinity, minHeight: 46)
+                .padding(.horizontal, 8)
+                .foregroundStyle(selected ? color : .primary)
+                .background(selected ? color.opacity(0.12) : Color.primary.opacity(0.035),
+                            in: .rect(cornerRadius: 14))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14)
+                        .strokeBorder(selected ? color.opacity(0.45) : .clear)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+private struct CategoryChoices: View {
+    @Binding var selection: SubscriptionCategory
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            EditorSectionTitle(title: "分类")
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 130))], spacing: 10) {
+                ForEach(SubscriptionCategory.allCases) { category in
+                    SelectionChip(title: category.displayName, symbol: category.systemImage,
+                                  selected: selection == category, color: category.accentColor) {
+                        selection = category
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct ExpirationSection: View {
+    @Binding var date: Date
+    @State private var showsCalendar = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            EditorSectionTitle(title: "到期时间")
+            Button {
+                showsCalendar.toggle()
+            } label: {
+                HStack(spacing: 16) {
+                    Image(systemName: "calendar")
+                        .font(.title)
+                        .foregroundStyle(.teal)
+                    Text(date, format: .dateTime.year().month().day())
+                        .font(.title3.weight(.semibold))
+                    Spacer()
+                    Image(systemName: showsCalendar ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.bold))
+                }
+                .foregroundStyle(.primary)
+                .padding(20)
+                .background(.background, in: .rect(cornerRadius: 20))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("到期日期")
+            .accessibilityValue(date.formatted(date: .abbreviated, time: .omitted))
+            if showsCalendar {
+                DatePicker("到期日期", selection: $date, displayedComponents: .date)
+                    .datePickerStyle(.graphical)
+                    .padding(8)
+                    .background(.background, in: .rect(cornerRadius: 20))
+            }
+        }
+    }
+}
+
+private struct RenewalChoices: View {
+    @Binding var interval: Int
+    @Binding var unit: RenewalUnit
+    @Binding var autoRenews: Bool
+    @State private var showsCustom = false
+
+    private var isStandard: Bool {
+        interval == 1 && (unit == .month || unit == .year) || interval == 3 && unit == .month
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            EditorSectionTitle(title: "续费周期")
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 120))], spacing: 10) {
+                SelectionChip(title: "每月", symbol: "calendar", selected: interval == 1 && unit == .month) {
+                    interval = 1; unit = .month; showsCustom = false
+                }
+                SelectionChip(title: "每季", symbol: "calendar", selected: interval == 3 && unit == .month) {
+                    interval = 3; unit = .month; showsCustom = false
+                }
+                SelectionChip(title: "每年", symbol: "calendar", selected: interval == 1 && unit == .year) {
+                    interval = 1; unit = .year; showsCustom = false
+                }
+                SelectionChip(title: "自定义", symbol: "slider.horizontal.3", selected: showsCustom || !isStandard) {
+                    showsCustom.toggle()
+                }
+            }
+            if showsCustom || !isStandard {
+                VStack(spacing: 12) {
+                    Stepper("每 \(interval) \(unit.displayName)", value: $interval, in: 1...24)
+                    Picker("周期单位", selection: $unit) {
+                        ForEach(RenewalUnit.allCases) { unit in
+                            Text(unit.displayName).tag(unit)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+                .padding(16)
+                .background(.background, in: .rect(cornerRadius: 18))
+            }
+            Toggle(isOn: $autoRenews) {
+                Label("自动续费", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
+                    .font(.subheadline)
+            }
+            .padding(.top, 4)
+        }
+    }
+}
+
+private struct ReminderOptions: View {
+    @Binding var enabled: Bool
+    @Binding var days: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Toggle(isOn: $enabled) {
+                Label("到期提醒", systemImage: "bell.badge")
+                    .font(.headline)
+            }
+            if enabled {
+                Stepper(days == 0 ? "到期当天" : "提前 \(days) 天", value: $days, in: 0...30)
+                    .font(.subheadline)
+                Text("提醒将在当天上午 9:00 发送")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.vertical, 8)
+        .padding(20)
+        .background(.teal.opacity(0.06), in: .rect(cornerRadius: 20))
     }
 }
+
 
 private struct SubscriptionEditor: View {
     @Environment(\.dismiss) private var dismiss
@@ -786,90 +957,52 @@ private struct SubscriptionEditor: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    MembershipEditorHeader(name: trimmedName, category: category)
-                        .listRowBackground(Color.clear)
-                }
-
-                Section("应用") {
-                    TextField("例如：Netflix", text: $name)
-                        .textInputAutocapitalization(.words)
-
-                    Picker("分类", selection: $category) {
-                        ForEach(SubscriptionCategory.allCases) { category in
-                            Label(category.displayName, systemImage: category.systemImage)
-                                .tag(category)
-                        }
-                    }
-                }
-
-                Section("有效期") {
-                    DatePicker(
-                        "到期日",
-                        selection: $expirationDate,
-                        displayedComponents: .date
-                    )
-                }
-
-                Section {
-                    Toggle("启用提醒", isOn: $reminderEnabled)
-
-                    if reminderEnabled {
-                        Stepper(value: $reminderDaysBefore, in: 0...30) {
-                            LabeledContent("提醒时间", value: reminderTimingText)
-                        }
-                    }
-                } header: {
-                    Text("到期提醒")
-                } footer: {
-                    if reminderEnabled {
-                        Text("提醒将在所选日期上午 9:00 发送。")
-                    }
-                }
-
-                Section("续费设置") {
-                    Toggle("自动续费", isOn: $autoRenews)
-
-                    Stepper(value: $renewalInterval, in: 1...24) {
-                        LabeledContent("间隔", value: "\(renewalInterval)")
-                    }
-
-                    Picker("周期单位", selection: $renewalUnit) {
-                        ForEach(RenewalUnit.allCases) { unit in
-                            Text(unit.displayName).tag(unit)
-                        }
-                    }
-
-                    LabeledContent("当前周期", value: cyclePreview)
-                }
-
-                if onDelete != nil {
-                    Section {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    MembershipIdentityCard(name: $name, category: category, expirationDate: expirationDate)
+                    CategoryChoices(selection: $category)
+                    ExpirationSection(date: $expirationDate)
+                    RenewalChoices(interval: $renewalInterval, unit: $renewalUnit, autoRenews: $autoRenews)
+                    ReminderOptions(enabled: $reminderEnabled, days: $reminderDaysBefore)
+                    if onDelete != nil {
                         Button("删除会员", role: .destructive) {
                             showsDeleteConfirmation = true
                         }
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity, minHeight: 44)
                     }
                 }
+                .padding(24)
+                .frame(maxWidth: 640)
+                .frame(maxWidth: .infinity)
             }
-            .scrollContentBackground(.hidden)
+            .scrollDismissesKeyboard(.interactively)
             .background(MembershipBackground())
             .tint(.teal)
-            .navigationTitle(originalSubscription == nil ? "添加会员" : "编辑会员")
+            .navigationTitle(originalSubscription == nil ? "新会员" : "编辑会员")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") {
-                        dismiss()
-                    }
+                    Button("取消") { dismiss() }
                 }
-
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") {
-                        save()
+            }
+            .safeAreaInset(edge: .bottom) {
+                Button(action: save) {
+                    HStack {
+                        Text(originalSubscription == nil ? "添加会员" : "保存修改")
+                        Spacer()
+                        Image(systemName: "arrow.right")
                     }
-                    .disabled(trimmedName.isEmpty)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .padding(20)
+                    .background(trimmedName.isEmpty ? Color.gray : Color(red: 0.06, green: 0.34, blue: 0.32),
+                                in: .rect(cornerRadius: 20))
                 }
+                .disabled(trimmedName.isEmpty)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 12)
+                .background(.bar)
             }
             .alert(
                 "确定删除这个会员吗？",
@@ -887,24 +1020,6 @@ private struct SubscriptionEditor: View {
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var reminderTimingText: String {
-        if reminderDaysBefore == 0 {
-            return "到期当天"
-        }
-        return "提前 \(reminderDaysBefore) 天"
-    }
-
-    private var cyclePreview: String {
-        Subscription(
-            name: "",
-            expirationDate: expirationDate,
-            renewalInterval: renewalInterval,
-            renewalUnit: renewalUnit,
-            autoRenews: autoRenews,
-            category: category
-        ).cycleDescription
     }
 
     private func save() {
@@ -927,4 +1042,36 @@ private struct SubscriptionEditor: View {
 #Preview {
     ContentView()
         .modelContainer(for: Subscription.self, inMemory: true)
+}
+
+#Preview("新建会员") {
+    SubscriptionEditor(subscription: nil, onSave: { _ in }, onDelete: nil)
+        .environment(\.locale, Locale(identifier: "zh_Hans_CN"))
+}
+
+#Preview("会员卡包") {
+    let container = makePreviewContainer()
+    let _ = container.mainContext.insert(Subscription(
+        name: "Netflix", expirationDate: .now.addingTimeInterval(86400 * 12),
+        renewalInterval: 1, renewalUnit: .month, autoRenews: true, category: .entertainment
+    ))
+    let _ = container.mainContext.insert(Subscription(
+        name: "iCloud+", expirationDate: .now.addingTimeInterval(86400 * 60),
+        renewalInterval: 1, renewalUnit: .year, autoRenews: true, category: .cloudServices
+    ))
+    ContentView()
+        .modelContainer(container)
+        .environment(\.locale, Locale(identifier: "zh_Hans_CN"))
+}
+
+@MainActor
+private func makePreviewContainer() -> ModelContainer {
+    do {
+        return try ModelContainer(
+            for: Subscription.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+    } catch {
+        fatalError("无法创建预览数据库：\(error)")
+    }
 }
